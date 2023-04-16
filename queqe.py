@@ -1,8 +1,9 @@
 import time
 import random
 from pymongo import MongoClient
-from multiprocessing import Process
+from multiprocessing import Process, Queue as Q
 from config import URL_DB, BATCH_SIZE, LEN_CACHE, TIME_SLEEP, TIME_MODEL, NUM_PROCESS
+from preprocess import process_urls, get_predict
 
 client = MongoClient(URL_DB)
 db = client['cps']
@@ -16,7 +17,7 @@ class Queqe:
         # load cache 
         print('load cache')
         cache = list(Urls.find({}))
-        self.result = cache
+        self.result = cache[int(len_cache/2):]
         print('load thanh cong')
         self.id = -1
     def get(self):
@@ -43,22 +44,62 @@ class Queqe:
                     return i
         else:
             return {}
-    def models(self, t):
-        time.sleep(t)
+    def models(self):
+        if len(self.queqe_) > BATCH_SIZE*5:
+            start = time.time()
+            data = self.queqe_
+            self.queqe_ = []
+            score1 = Q()
+            score2 = Q()
+            p1 = Process(target=self.modelsEmergency, args=(data[:int(len(data)/2)],score1))
+            p2 = Process(target=self.modelsEmergency, args=(data[int(len(data)/2):],score2))
+            p1.start()
+            p2.start()
+            p1.join()
+            p2.join()
+            score = list(score1.get()) + list(score2.get())
+            for i in range(len(data)):
+                self.result.append({"url": data[i], "label": score[i][0]})
+            print("sau 2 tien trinh ===========",time.time()-start)
+            # for i in range(NUM_PROCESS):
+            #     Process(target=self.modelsEmergency, args=(data[i:i],)).start()
+        else:  
+            data = self.get()
+            res = process_urls(data)
+            score = get_predict(res)
+            # print(score)
+            for i in range(len(data)):
+                self.result.append({"url": data[i], "label": score[i][0]})
+    def modelsEmergency(self, data, score):
+        start = time.time()
+        res = process_urls(data)
+        score_ = get_predict(res)
+        score.put(score_)
+        print("Tien trinh con",time.time() - start)
+        # for i in range(len(data)):
+        #     self.result.append({"url": data[i], "label": score[i][0]})
+        #     print(len(self.result))
+        # print(score)
+        # for i in range(len(data)):
+        #     self.result.append({"url": data[i], "label": score[i][0]})
+        #     print(len(self.result))
     def predict(self):
         i_ = 0
         while True:
+            # print(len(self.queqe_))
             i_= i_+1
             if len(self.queqe_) > BATCH_SIZE:
                 # print("BATCH_SIZE")
                 i_ = 0
-                data = self.get()
-                self.models(TIME_MODEL)
+                self.models()
                 # for i in range(NUM_PROCESS):
                 #     Process(target=self.models, args=(TIME_MODEL,)).start()
-                #  Process(target=self.models, args=(TIME_MODEL,))
-                for i in data:
-                    self.result.append({"url": i, "label": random.randint(0,1)})
+                # if len(self.queqe_) < 5*BATCH_SIZE:
+                #     self.models()
+                # else:
+                #     for i in range(NUM_PROCESS):
+                #         Process(target=self.models).start()
+
                 if len(self.result) >= self.len_cache: 
                     self.save()
                     print('======================================')
@@ -69,16 +110,13 @@ class Queqe:
                     # print(len(self.queqe_))
                     i_ = 0
                     if len(self.queqe_) > 0:
-                        data = self.get()
-                        # print("SAU NGHI")
-                        self.models(TIME_MODEL)
-                        for i in data:
-                            self.result.append({"url": i, "label": random.randint(0,1)})
+                        self.models()
                         if len(self.result) >= self.len_cache: 
                             self.save()
                             print('======================================')
                             print('luu thanh cong')
-            time.sleep(TIME_SLEEP)
+                else:
+                    time.sleep(TIME_SLEEP)
         #qua model 
         #luu vao database 
         #  

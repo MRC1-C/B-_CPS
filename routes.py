@@ -7,13 +7,15 @@ from config import TIME_SLEEP_CHECK_PREDICT, THREAD
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.interpolate import interp1d
+import json
+
 def run(app, queqe_):
     @app.route("/predict", methods=["POST"])
     def predict():
         queqe = queqe_[random.randint(0,THREAD-1)]
         # print(f"du doan tren queqe {queqe.id}")
-        # url = request.json.get("url", None)
-        url = "https://www.youtube.com/" + str(random.randint(0,2000))
+        url = request.json.get("url", None)
+        # url = "https://www.youtube.com/" + str(random.randint(0,2000))
         # data = Urls.find_one({url: url})
         data = queqe.checkResult(url)
         if data:
@@ -26,10 +28,16 @@ def run(app, queqe_):
                 return jsonify(data['label']) 
     @app.route("/fakeRequeset")
     def fakeRequeset():
+        with open('datas.json', 'r') as f:
+            data = json.load(f)
         start = time.time()
-        for i in range(2000):
-            predict()
+        queqe_[0].queqe_ = queqe_[0].queqe_ + data[0]['urls'][:5000]
+        
         return jsonify(time.time()-start)
+
+        # print(len(data[0]['urls']))
+        # for i in range(2000):
+        #     predict()
     @app.route("/testtime")
     def testtime():
         t_ = []
